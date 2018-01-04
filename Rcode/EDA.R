@@ -279,7 +279,7 @@ Shopping
 # Shopping_A03 <- Shopping[BIZ_UNIT == "A03"]
 # Shopping_A04 <- Shopping[BIZ_UNIT == "A04"]
 # Shopping_A05 <- Shopping[BIZ_UNIT == "A05"]
-
+# 
 # save(list = c("Shopping_A01","Shopping_A02","Shopping_A03","Shopping_A04","Shopping_A05"),
 #      file = "Rdata/Shopping Transaction by BIZ_UNIT.RData")
 
