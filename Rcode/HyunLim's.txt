@@ -1,0 +1,779 @@
+###############################################################################
+##################### L'Point Competition - 3rd ###############################
+###############################################################################
+# install.packages("qcc")
+
+## Update Log
+## 1219/01 - Start project and Create script
+## 1219/02 - Environmental settings of variables
+## 0112/01 - Data EDA : category data, find transaction_N by major
+## 0113/01 - draw pareto chart of each category
+
+# load packages in used
+library(data.table)
+library(ggplot2)
+library(qcc)
+library(arules)
+library(reshape2)
+library(entropy)
+theme_set(theme_gray(base_family = "NanumGothic"))
+##### 0. Set working Directory ####
+setwd("/Volumes/Jetdrive/Documents/lpoint/3rd/")
+
+##### 1. Environment Setting #####
+# # load and save raw data
+# customer <- read.csv("rawdata/01_CustomerDemo.txt", stringsAsFactors = FALSE, fileEncoding = "CP949")
+# customer <- as.data.table(customer)
+# transaction <- read.csv("rawdata/02_product transaction.txt", stringsAsFactors = FALSE, fileEncoding = "CP949")
+# transaction <- as.data.table(transaction)
+# category <- read.csv("rawdata/03_product category.txt", stringsAsFactors = FALSE, fileEncoding = "CP949")
+# category <- as.data.table(category)
+# competitor <- read.csv("rawdata/04_competitorusage.txt", stringsAsFactors = FALSE, fileEncoding = "CP949")
+# competitor <- as.data.table(competitor)
+# membership <- read.csv("rawdata/05_membership.txt", stringsAsFactors = FALSE, fileEncoding = "CP949")
+# membership <- as.data.table(membership)
+# channel <- read.csv("rawdata/06_channel data.txt", stringsAsFactors = FALSE, fileEncoding = "CP949")
+# channel <- as.data.table(channel)
+
+# save(list = ls(), file = "Loaded Data with datatable_1219.RData")
+# # save seperate files for ram management
+# save(customer, file = "rdata/01_CustomerDemo.RData")
+# save(transaction, file = "rdata/02_product transaction.RData")
+# save(category, file = "rdata/03_product category.RData")
+# save(competitor, file = "rdata/04_competitorusage.RData")
+# save(membership, file = "rawdata/05_membership.RData")
+# save(channel, file = "rawdata/06_channel.RData")
+# 
+# # load("Loaded Data with datatable_1219.RData")
+# # load("saveData_1229.RData")
+
+# 상품품목 데이터 EDA
+# # 중분류 기준 제휴사별 구분
+# category_A <- category[제휴사 == "A",sort(unique(중분류명))]
+# category_A
+# category_B <- category[제휴사 == "B", sort(unique(중분류명))]
+# category_B
+# category_C <- category[제휴사 == "C", sort(unique(중분류명))]
+# category_C
+# category_D <- category[제휴사 == "D", sort(unique(중분류명))]
+# category_D
+
+# 제휴사별 취급하는 품목의 중분류 확인
+load("rawdata/03_product category.RData")
+category[, .(sort(unique(중분류명))), by = 제휴사]
+
+# 제휴사별 취급 품목 수
+category[, .N, by = 제휴사]
+
+# 중분류코드와 중분류명 매핑 테이블
+category_A_minor_name <- category[제휴사 == 'A', .(중분류명 = unique(중분류명)),  by = 중분류코드]
+category_B_minor_name <- category[제휴사 == 'B', .(중분류명 = unique(중분류명)),  by = 중분류코드]
+category_C_minor_name <- category[제휴사 == 'C', .(중분류명 = unique(중분류명)),  by = 중분류코드]
+category_D_minor_name <- category[제휴사 == 'D', .(중분류명 = unique(중분류명)),  by = 중분류코드]
+
+# 재휴사 및 중분류별 소분류의 수 (= 취급 품목 수)
+category[, .N, by = .(제휴사, 대분류코드, 중분류코드)]
+category[, .N, by = .(제휴사, 대분류코드)]
+
+category_A_major <- category[제휴사 == "A",.(중분류명, 소분류명 = unique(소분류명)), by = 대분류코드]
+category_A_major_list_minor <- list(NA)
+for(i in 1:length(unique(category_A_major$대분류코드))){
+  category_A_major_list_minor[[i]] <- category_A_major[대분류코드 == i, unique(중분류명)]
+}
+
+category_B_major <- category[제휴사 == "B",.(중분류명, 소분류명 = unique(소분류명)), by = 대분류코드]
+category_B_major_list_minor <- list(NA)
+for(i in 1:length(unique(category_B_major$대분류코드))){
+  category_B_major_list_minor[[i]] <- category_B_major[대분류코드 == i, unique(중분류명)]
+}
+
+category_C_major <- category[제휴사 == "C",.(중분류명, 소분류명 = unique(소분류명)), by = 대분류코드]
+category_C_major_list_minor <- list(NA)
+for(i in 1:length(unique(category_C_major$대분류코드))){
+  category_C_major_list_minor[[i]] <- category_C_major[대분류코드 == i, unique(중분류명)]
+}
+
+category_D_major <- category[제휴사 == "D",.(중분류명, 소분류명 = unique(소분류명)), by = 대분류코드]
+category_D_major_list_minor <- list(NA)
+for(i in 1:length(unique(category_D_major$대분류코드))){
+  category_D_major_list_minor[[i]] <- category_D_major[대분류코드 == i, unique(중분류명)]
+}
+
+category_A1 <- category[제휴사 == "A"][order(대분류코드, 소분류명)]
+category_B1 <- category[제휴사 == "B"][order(대분류코드, 소분류명)]
+category_C1 <- category[제휴사 == "C"][order(대분류코드, 소분류명)]
+category_D1 <- category[제휴사 == "D"][order(대분류코드, 소분류명)]
+
+ggplot(category_A1, aes(x = 대분류코드, fill = 중분류명)) + geom_histogram(bins = 25) + scale_x_continuous(name = c("대분류코드"), breaks = c(min(category_A1$대분류코드):max(category_A1$대분류코드)))
+ggplot(category_B1, aes(x = 대분류코드)) + geom_histogram(bins = 25) + scale_x_continuous(name = c("대분류코드"), breaks = c(min(category_B1$대분류코드):max(category_B1$대분류코드)))
+ggplot(category_C1, aes(x = 대분류코드, fill = 중분류명)) + geom_histogram(bins = 40) + scale_x_continuous(name = c("대분류코드"), breaks = c(min(category_C1$대분류코드):max(category_C1$대분류코드)))
+ggplot(category_D1, aes(x = 대분류코드, fill = 중분류명)) + geom_histogram(bins = 25) + scale_x_continuous(name = c("대분류코드"), breaks = c(min(category_D1$대분류코드):max(category_D1$대분류코드)))
+
+# 대분류별 실제 판매량
+category_A_trans_N_by_major <- transaction_A[,.(transaction_N = .N), by = Major_code][order(Major_code)]
+category_B_trans_N_by_major <- transaction_B[,.(transaction_N = .N), by = Major_code][order(Major_code)]
+category_C_trans_N_by_major <- transaction_C[,.(transaction_N = .N), by = Major_code][order(Major_code)]
+category_D_trans_N_by_major <- transaction_D[,.(transaction_N = .N), by = Major_code][order(Major_code)]
+
+# 파트너별 주력 품목(대분류) 파악
+ggplot(category_A_trans_N_by_major, aes(x = factor(Major_code), y = transaction_N)) + geom_bar(stat = "identity")
+ggplot(category_B_trans_N_by_major, aes(x = factor(Major_code), y = transaction_N)) + geom_bar(stat = "identity")
+ggplot(category_C_trans_N_by_major, aes(x = factor(Major_code), y = transaction_N)) + geom_bar(stat = "identity")
+ggplot(category_D_trans_N_by_major, aes(x = factor(Major_code), y = transaction_N)) + geom_bar(stat = "identity")
+
+# Pareto Chart of Major_code
+category_A_trans_N_by_major_vec <- category_A_trans_N_by_major$transaction_N
+names(category_A_trans_N_by_major_vec) <- category_A_trans_N_by_major$Major_code
+pareto.chart(category_A_trans_N_by_major_vec, main = "Category A transactions by N",
+             xlab = "Major_code", ylab = "Transactions (N)", topo.colors(length(category_A_trans_N_by_major_vec))) + 
+  abline(h = (sum(category_A_trans_N_by_major_vec) * 0.8), col = "red", lwd = 4)
+
+category_B_trans_N_by_major_vec <- category_B_trans_N_by_major$transaction_N
+names(category_B_trans_N_by_major_vec) <- category_B_trans_N_by_major$Major_code
+pareto.chart(category_B_trans_N_by_major_vec, main = "Category B transactions by N",
+             xlab = "Major_code", ylab = "Transactions (N)", topo.colors(length(category_B_trans_N_by_major_vec))) + 
+  abline(h = (sum(category_B_trans_N_by_major_vec) * 0.5), col = "red", lwd = 4)
+
+category_C_trans_N_by_major_vec <- category_C_trans_N_by_major$transaction_N
+names(category_C_trans_N_by_major_vec) <- category_C_trans_N_by_major$Major_code
+pareto.chart(category_C_trans_N_by_major_vec, main = "Category C transactions by N",
+             xlab = "Major_code", ylab = "Transactions (N)", topo.colors(length(category_C_trans_N_by_major_vec))) + 
+  abline(h = (sum(category_C_trans_N_by_major_vec) * 0.8), col = "red", lwd = 4)
+
+category_D_trans_N_by_major_vec <- category_D_trans_N_by_major$transaction_N
+names(category_D_trans_N_by_major_vec) <- category_D_trans_N_by_major$Major_code
+pareto.chart(category_D_trans_N_by_major_vec, main = "Category D transactions by N",
+             xlab = "Major_code", ylab = "Transactions (N)", topo.colors(length(category_D_trans_N_by_major_vec))) + 
+  abline(h = (sum(category_D_trans_N_by_major_vec) * 0.8), col = "red", lwd = 4)
+
+
+category.name <- category[, .(소분류코드, 소분류명)]
+names(category.name) <- c("Sub_code", "Sub_name")
+
+# 파트너별 판매 패턴
+trans_A_Date <- as.data.frame(table(transaction_A[, substr(Date, 3, 6)]))
+ggplot(trans_A_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Seasonality of Partner A")
+
+trans_B_Date <- as.data.frame(table(transaction_B[, substr(Date, 3, 6)]))
+ggplot(trans_B_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Seasonality of Partner B")
+
+trans_C_Date <- as.data.frame(table(transaction_C[, substr(Date, 3, 6)]))
+ggplot(trans_C_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Seasonality of Partner C")
+
+trans_D_Date <- as.data.frame(table(transaction_D[, substr(Date, 3, 6)]))
+ggplot(trans_D_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Seasonality of Partner D")
+
+
+# 주요 판매 품목의 시기별 판매량 패턴
+trans_A_1_Date <- as.data.frame(table(transaction_A[Major_code == "1", substr(Date, 3, 6)]))
+trans_A_4_Date <- as.data.frame(table(transaction_A[Major_code == "4", substr(Date, 3, 6)]))
+trans_A_2_Date <- as.data.frame(table(transaction_A[Major_code == "2", substr(Date, 3, 6)]))
+
+ggplot(trans_A_1_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category A01 by Date")
+ggplot(trans_A_4_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category A04 by Date")
+ggplot(trans_A_2_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category A02 by Date")
+
+
+trans_B_10_Date <- as.data.frame(table(transaction_B[Major_code == "10", substr(Date, 3, 6)]))
+trans_B_14_Date <- as.data.frame(table(transaction_B[Major_code == "14", substr(Date, 3, 6)]))
+trans_B_5_Date <- as.data.frame(table(transaction_B[Major_code == "5", substr(Date, 3, 6)]))
+trans_B_43_Date <- as.data.frame(table(transaction_B[Major_code == "43", substr(Date, 3, 6)]))
+trans_B_38_Date <- as.data.frame(table(transaction_B[Major_code == "38", substr(Date, 3, 6)]))
+
+ggplot(trans_B_10_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category B10 by Date")
+ggplot(trans_B_14_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category B14 by Date")
+ggplot(trans_B_5_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category B5 by Date")
+ggplot(trans_B_43_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category B43 by Date")
+ggplot(trans_B_38_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category B38 by Date")
+
+
+trans_C_3_Date <- as.data.frame(table(transaction_C[Major_code == "3", substr(Date, 3, 6)]))
+trans_C_15_Date <- as.data.frame(table(transaction_C[Major_code == "15", substr(Date, 3, 6)]))
+trans_C_7_Date <- as.data.frame(table(transaction_C[Major_code == "7", substr(Date, 3, 6)]))
+trans_C_11_Date <- as.data.frame(table(transaction_C[Major_code == "11", substr(Date, 3, 6)]))
+ggplot(trans_C_3_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category C3 by Date")
+ggplot(trans_C_15_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category C15 by Date")
+ggplot(trans_C_7_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category C7 by Date")
+ggplot(trans_C_11_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category C11 by Date")
+
+
+trans_D_4_Date <- as.data.frame(table(transaction_D[Major_code == "4", substr(Date, 3, 6)]))
+trans_D_2_Date <- as.data.frame(table(transaction_D[Major_code == "2", substr(Date, 3, 6)]))
+trans_D_1_Date <- as.data.frame(table(transaction_D[Major_code == "1", substr(Date, 3, 6)]))
+ggplot(trans_D_4_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category D4 by Date")
+ggplot(trans_D_2_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category D2 by Date")
+ggplot(trans_D_1_Date, aes(x = Var1, y = Freq, group = 1)) + geom_point() + 
+  geom_smooth(se = FALSE, span = 0.2) + xlab("Date") + ylab("transactions") +
+  ggtitle("Transactions of Category D1 by Date")
+
+
+# 경쟁사 정보 EDA
+competitor[, .N, keyby = 경쟁사]
+
+# 고객 번호 별 경쟁사 이용 내역
+competitor_customer_usage <- as.data.frame(competitor[, .N, by = 고객번호])
+competitor_usage_dist <- as.data.frame(table(competitor_customer_usage$N))
+ggplot(competitor_usage_dist, aes(x = Var1, y = Freq, group = 1)) + geom_bar(stat = "identity") +
+  ggtitle("distribution of competitor usage")
+
+competitor_N <- competitor[, .N, keyby = .(제휴사, 경쟁사)]
+ggplot(competitor_N, aes(x = 제휴사, y = N, fill = 경쟁사)) + geom_bar(stat = "identity", colour = "black") +
+  guides(fill = guide_legend(reverse = FALSE)) + scale_fill_brewer(palette = "Pastel1")
+
+competitor_N_1 <- competitor_N[, 경쟁사 := substr(경쟁사, 2, 3)]
+competitor_N_total <- competitor_N_1[, .(N = sum(N)), by = 제휴사]
+competitor_N_total[, `:=` (경쟁사 = c("total"))]
+competitor_N_2 <- rbind(competitor_N_total, competitor_N_1)
+setkey(competitor_N_2, 제휴사,경쟁사)
+
+ggplot(competitor_N_2, aes(x = 제휴사, y = N, colour = 경쟁사, group = 경쟁사)) + 
+  geom_line() + geom_point()
+
+ggplot(competitor_N_2, aes(x = 제휴사, y = N, colour  = 경쟁사, group = 경쟁사)) + 
+  geom_line() + geom_point()
+
+competitor_A_Date <- as.data.frame(table(competitor[제휴사 == "A", substr(이용년월, 3, 6)]))
+competitor_B_Date <- as.data.frame(table(competitor[제휴사 == "B", substr(이용년월, 3, 6)]))
+competitor_C_Date <- as.data.frame(table(competitor[제휴사 == "C", substr(이용년월, 3, 6)]))
+competitor_D_Date <- as.data.frame(table(competitor[제휴사 == "D", substr(이용년월, 3, 6)]))
+
+ggplot(competitor_A_Date, aes(x = Var1, y = Freq, group = 1)) + geom_line() + 
+  xlab("Date") + ylab("transactions") + ggtitle("competitor transactions of Partner A")
+ggplot(competitor_B_Date, aes(x = Var1, y = Freq, group = 1)) + geom_line() + 
+  xlab("Date") + ylab("transactions") + ggtitle("competitor transactions of Partner B")
+ggplot(competitor_C_Date, aes(x = Var1, y = Freq, group = 1)) + geom_line() + 
+  xlab("Date") + ylab("transactions") + ggtitle("competitor transactions of Partner C")
+ggplot(competitor_D_Date, aes(x = Var1, y = Freq, group = 1)) + geom_line() + 
+  xlab("Date") + ylab("transactions") + ggtitle("competitor transactions of Partner D")
+
+
+# 경쟁사를 이용하는 고객들에 대한 연령 분포
+setkey(competitor, 고객번호)
+setkey(customer, 고객번호)
+competitor_customer_join <- merge(competitor, customer, all = FALSE)
+# 성별분포
+competitor_ratio_sex <- competitor_customer_join[, .(Ratio_M = length(which(성별 == "M"))/.N, 
+                                                     Ratio_F = length(which(성별 ==  "F"))/.N), 
+                                                 keyby = .(경쟁사)]
+competitor_ratio_total_sex <- competitor_customer_join[,.(Ratio_M = length(which(성별 == "M"))/.N, 
+                                                       Ratio_F = length(which(성별 ==  "F"))/.N),
+                                                       keyby = .(제휴사)]
+
+competitor_ratio_age <- competitor_customer_join[, .(Ratio_2024 = length(which(연령대 == "20세~24세"))/.N,
+                             Ratio_2529 = length(which(연령대 == "25세~29세"))/.N,
+                             Ratio_3034 = length(which(연령대 == "30세~34세"))/.N,
+                             Ratio_3539 = length(which(연령대 == "35세~39세"))/.N,
+                             Ratio_4044 = length(which(연령대 == "40세~44세"))/.N,
+                             Ratio_4549 = length(which(연령대 == "45세~49세"))/.N,
+                             Ratio_5054 = length(which(연령대 == "50세~54세"))/.N,
+                             Ratio_5559 = length(which(연령대 == "55세~59세"))/.N,
+                             Ratio_60__ = length(which(연령대 == "60세이상"))/.N),
+                          keyby = .(경쟁사)]
+competitor_ratio_total_age <- competitor_customer_join[, .(Ratio_2024 = length(which(연령대 == "20세~24세"))/.N,
+                                                     Ratio_2529 = length(which(연령대 == "25세~29세"))/.N,
+                                                     Ratio_3034 = length(which(연령대 == "30세~34세"))/.N,
+                                                     Ratio_3539 = length(which(연령대 == "35세~39세"))/.N,
+                                                     Ratio_4044 = length(which(연령대 == "40세~44세"))/.N,
+                                                     Ratio_4549 = length(which(연령대 == "45세~49세"))/.N,
+                                                     Ratio_5054 = length(which(연령대 == "50세~54세"))/.N,
+                                                     Ratio_5559 = length(which(연령대 == "55세~59세"))/.N,
+                                                     Ratio_60__ = length(which(연령대 == "60세이상"))/.N),
+                                                 keyby = .(제휴사)]
+competitor_ratio_sex_t <- dcast.data.table(melt(competitor_ratio_sex, id.vars = "경쟁사"), variable ~ 경쟁사)
+competitor_ratio_age_t <- dcast.data.table(melt(competitor_ratio_age, id.vars = "경쟁사"), variable ~ 경쟁사)
+
+competitor_ratio_total_sex_t <- dcast.data.table(melt(competitor_ratio_total_sex, id.vars = "제휴사"), variable ~ 제휴사)
+competitor_ratio_total_age_t <- dcast.data.table(melt(competitor_ratio_total_age, id.vars = "제휴사"), variable ~ 제휴사)
+
+competitor_ratio_total_age_t_melt <- melt(competitor_ratio_total_age_t, id.vars = "variable")
+ggplot(competitor_ratio_total_age_t_melt, aes(x = variable, y = value, colour = variable.1, group = variable.1)) + 
+  geom_line() + geom_point() + xlab("Age") + ylab("ratio") + 
+  ggtitle("ratio of competitor usage by Age") + labs(colour = "Partner")
+
+competitor_ratio_total_sex_t_melt <- melt(competitor_ratio_total_sex_t, id.vars = "variable")
+ggplot(competitor_ratio_total_sex_t_melt, aes(x = variable.1, y = value, colour = variable, group = variable)) +
+  geom_line() + geom_point() + xlab("Partner") + ylab("ratio") +
+  ggtitle("ratio of competitor usage by Sex") + labs(colour = "Sex") + 
+  scale_colour_discrete(labels = c("Male", "Female"))
+
+
+
+
+# 고객 정보 데이터 EDA
+# 성별 분할
+customer_male <- customer[성별 == "M"]
+customer_female <- customer[성별 == "F"]
+# 성별/연령대/거주지 분포
+customer[, .N, by = 성별]
+customer[, .N, by = 연령대]
+customer[, .N, keyby = 거주지역]
+
+# 각 파트너별 이용 고객의 수
+transaction[, .(length(unique(CustomerNo))), by = Partner][order(Partner)]
+
+# 구매한 거래 수가 적은 고객들을 무시
+loyalty_A_No <- transaction_A[,.N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_A_No$N)), aes(x = Var1, y = Freq)) + geom_bar(stat = "identity")
+loyalty_B_No <- transaction_B[,.N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_B_No$N)), aes(x = Var1, y = Freq)) + geom_bar(stat = "identity")
+loyalty_C_No <- transaction_C[,.N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_C_No$N)), aes(x = Var1, y = Freq)) + geom_bar(stat = "identity")
+loyalty_D_No <- transaction_D[,.N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_D_No$N)), aes(x = Var1, y = Freq)) + geom_bar(stat = "identity")
+
+loyalty_A_Recipt <- transaction_A_byRecipt[, .N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_A_Recipt$N)), aes( x = as.numeric(Var1), y = Freq)) + geom_bar(stat = "identity")
+loyalty_B_Recipt <- transaction_B_byRecipt[, .N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_B_Recipt$N)), aes( x = as.numeric(Var1), y = Freq)) + geom_bar(stat = "identity")
+loyalty_C_Recipt <- transaction_C_byRecipt[, .N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_C_Recipt$N)), aes( x = as.numeric(Var1), y = Freq)) + geom_bar(stat = "identity")
+loyalty_D_Recipt <- transaction_D_byRecipt[, .N, by = CustomerNo][order(-N)]
+ggplot(as.data.frame(table(loyalty_D_Recipt$N)), aes( x = as.numeric(Var1), y = Freq)) + geom_bar(stat = "identity")
+
+
+# 멤버쉽 정보 EDA
+membership[, sort(unique(멤버십명))]
+membership[, .N, by = 멤버십명]
+
+
+
+
+# 거래정보 EDA
+gc()
+transaction_A <- transaction[Partner == "A"]
+transaction_B <- transaction[Partner == "B"]
+transaction_C <- transaction[Partner == "C"]
+transaction_D <- transaction[Partner == "D"]
+
+# 1회 구매시 구매제품 수
+transaction_A_num_of_item <- transaction_A[, .(number_of_use = .N), 
+                                      by = .(ReciptNo, CustomerNo, Store_code, Date, Time)]
+transaction_A_num_of_item_frame<- as.data.frame(table(transaction_A_num_of_item$number_of_use))
+ggplot(transaction_A_num_of_item_frame, aes(x = Var1, y = Freq, group = 1)) +
+  geom_bar(stat = "identity") + geom_line() + xlab("number of item") + ylab("number of transaction") +
+  ggtitle("number of item at each purchase of partner A") + 
+  geom_text(aes(y = transaction_A_num_of_item_frame$Freq + 100000, label = transaction_A_num_of_item_frame$Freq))
+
+transaction_B_num_of_item <- transaction_B[, .(number_of_use = .N), 
+                                         by = .(ReciptNo, CustomerNo, Store_code, Date, Time)]
+transaction_B_num_of_item_frame<- as.data.frame(table(transaction_B_num_of_item$number_of_use))
+ggplot(transaction_B_num_of_item_frame, aes(x = Var1, y = Freq, group = 1)) +
+  geom_bar(stat = "identity") + geom_line() + xlab("number of item") + ylab("number of transaction") +
+  ggtitle("number of item at each purchase of partner B") + 
+  geom_text(aes(y = transaction_B_num_of_item_frame$Freq + 100000, label = transaction_B_num_of_item_frame$Freq))
+
+transaction_C_num_of_item <- transaction_C[, .(number_of_use = .N), 
+                                           by = .(ReciptNo, CustomerNo, Store_code, Date, Time)]
+transaction_C_num_of_item_frame<- as.data.frame(table(transaction_C_num_of_item$number_of_use))
+ggplot(transaction_C_num_of_item_frame, aes(x = Var1, y = Freq, group = 1)) +
+  geom_bar(stat = "identity") + geom_line() + xlab("number of item") + ylab("number of transaction") +
+  ggtitle("number of item at each purchase of partner C") + 
+  geom_text(aes(y = transaction_C_num_of_item_frame$Freq + 100000, label = transaction_C_num_of_item_frame$Freq))
+
+transaction_D_num_of_item <- transaction_D[, .(number_of_use = .N), 
+                                           by = .(ReciptNo, CustomerNo, Store_code, Date, Time)]
+transaction_D_num_of_item_frame<- as.data.frame(table(transaction_D_num_of_item$number_of_use))
+ggplot(transaction_D_num_of_item_frame, aes(x = Var1, y = Freq, group = 1)) +
+  geom_bar(stat = "identity") + geom_line() + xlab("number of item") + ylab("number of transaction") +
+  ggtitle("number of item at each purchase of partner D") + 
+  geom_text(aes(y = transaction_D_num_of_item_frame$Freq + 1000, label = transaction_D_num_of_item_frame$Freq))
+
+
+purchase_date_A_by_customer <- transaction_A[, .(Dates_of_purchase = list(as.Date(as.character(sort(unique(.SD$Date))), format = "%Y%m%d"))), 
+                                             by = CustomerNo]
+purchase_date_A_by_customer[, `:=`(N = unlist(lapply(Dates_of_purchase, length)))]
+
+purchase_date_A_by_customer[, `:=`(TimeDiff = {
+  b <- list(NA)
+  for(i in 1:nrow(purchase_date_A_by_customer)){
+    a <- c(NA)
+    for(j in 2:purchase_date_A_by_customer$N[i]){
+      a <- cbind(a, difftime(purchase_date_A_by_customer$Dates_of_purchase[[i]][j],
+                             purchase_date_A_by_customer$Dates_of_purchase[[i]][j-1],
+                             units = "days"))
+    }
+    b[[i]] <- as.vector(na.omit(as.vector(a)))
+  }
+  return(b)
+})][,`:=`(Time_diff_median = unlist(lapply(TimeDiff, median)),
+          Time_diff_mean = unlist(lapply(TimeDiff, mean)))]
+
+# difftime.seq <- function(column, lencol, units = "days"){
+#   a <- c(NA)
+#   column <- as.Date(unlist(column), origin = "1970-01-01")
+#   for(j in 2:lencol){
+#     a <- cbind(a, as.vector(difftime(column[j], column[j-1], units = units)))
+#     cat(" ",j ," ")
+#   }
+#   return(a)
+# }
+
+purchase_date_B_by_customer <- transaction_B[, .(Dates_of_purchase = list(as.Date(as.character(sort(unique(.SD$Date))), format = "%Y%m%d"))), 
+                                             by = .(CustomerNo)]
+purchase_date_B_by_customer[, `:=`(N = unlist(lapply(Dates_of_purchase, length)))]
+
+purchase_date_B_by_customer[, `:=`(TimeDiff = {
+  b <- list(NA)
+  for(i in 1:nrow(purchase_date_B_by_customer)){
+    a <- c(NA)
+    for(j in 2:purchase_date_B_by_customer$N[i]){
+      a <- cbind(a, difftime(purchase_date_B_by_customer$Dates_of_purchase[[i]][j],
+                             purchase_date_B_by_customer$Dates_of_purchase[[i]][j-1],
+                             units = "days"))
+    }
+    b[[i]] <- as.vector(na.omit(as.vector(a)))
+  }
+  return(b)
+})][,`:=`(Time_diff_median = unlist(lapply(TimeDiff, median)),
+          Time_diff_mean = unlist(lapply(TimeDiff, mean)))]
+
+purchase_date_C_by_customer <- transaction_C[, .(Dates_of_purchase = list(as.Date(as.character(sort(unique(.SD$Date))), format = "%Y%m%d"))), 
+                                             by = .(CustomerNo)]
+purchase_date_C_by_customer[, `:=`(N = unlist(lapply(Dates_of_purchase, length)))]
+
+purchase_date_C_by_customer[, `:=`(TimeDiff = {
+  b <- list(NA)
+  for(i in 1:nrow(purchase_date_C_by_customer)){
+    a <- c(NA)
+    for(j in 2:purchase_date_C_by_customer$N[i]){
+      a <- cbind(a, difftime(purchase_date_C_by_customer$Dates_of_purchase[[i]][j],
+                             purchase_date_C_by_customer$Dates_of_purchase[[i]][j-1],
+                             units = "days"))
+    }
+    b[[i]] <- as.vector(na.omit(as.vector(a)))
+  }
+  return(b)
+})][,`:=`(Time_diff_median = unlist(lapply(TimeDiff, median)),
+          Time_diff_mean = unlist(lapply(TimeDiff, mean)))]
+
+purchase_date_D_by_customer <- transaction_D[, .(Dates_of_purchase = list(as.Date(as.character(sort(unique(.SD$Date))), format = "%Y%m%d"))), 
+                                             by = .(CustomerNo)]
+purchase_date_D_by_customer[, `:=`(N = unlist(lapply(Dates_of_purchase, length)))]
+
+purchase_date_D_by_customer[, `:=`(TimeDiff = {
+  b <- list(NA)
+  for(i in 1:nrow(purchase_date_D_by_customer)){
+    a <- c(NA)
+    for(j in 2:purchase_date_D_by_customer$N[i]){
+      a <- cbind(a, difftime(purchase_date_D_by_customer$Dates_of_purchase[[i]][j],
+                             purchase_date_D_by_customer$Dates_of_purchase[[i]][j-1],
+                             units = "days"))
+    }
+    b[[i]] <- as.vector(na.omit(as.vector(a)))
+  }
+  return(b)
+})][,`:=`(Time_diff_median = unlist(lapply(TimeDiff, median)),
+          Time_diff_mean = unlist(lapply(TimeDiff, mean)))]
+
+# 고객들이 얼마씩 구매하였는가, 그리고 평균, 중앙값
+purchase_amount_A_by_customer <- transaction_A_byRecipt[, .(Date = list(c(.SD$Date)) , 
+                                                            Amount = list(c(.SD$Amount)),
+                                                            Mean_Amount = mean(.SD$Amount),
+                                                            Median_Amount = as.numeric(median(.SD$Amount))), 
+                                                        by = CustomerNo]
+
+purchase_amount_B_by_customer <- transaction_B_byRecipt[, .(Date = list(c(.SD$Date)) , 
+                                                            Amount = list(c(.SD$Amount)),
+                                                            Mean_Amount = mean(.SD$Amount),
+                                                            Median_Amount = as.numeric(median(.SD$Amount))), 
+                                                        by = CustomerNo]
+purchase_amount_C_by_customer <- transaction_C_byRecipt[, .(Date = list(c(.SD$Date)) , 
+                                                                   Amount = list(c(.SD$Amount)),
+                                                                   Mean_Amount = mean(.SD$Amount),
+                                                                   Median_Amount = as.numeric(median(.SD$Amount))), 
+                                                               by = CustomerNo]
+purchase_amount_D_by_customer <- transaction_D_byRecipt[, .(Date = list(c(.SD$Date)) , 
+                                                            Amount = list(c(.SD$Amount)),
+                                                            Mean_Amount = mean(.SD$Amount),
+                                                            Median_Amount = as.numeric(median(.SD$Amount))), 
+                                                        by = CustomerNo]
+
+
+# 빈발패턴 탐색
+# 파트너 A
+transaction_A_arules <- as(split(as.vector(transaction_A$Sub_code),
+                                 as.vector(transaction_A$ReciptNo)),
+                           "transactions")
+transaction_A_itemFreq <- sort(itemFrequency(transaction_A_arules, "absolute"),
+                              decreasing = TRUE)
+
+transaction_A_itemFreq.table <- data.table(Sub_code = names(transaction_A_itemFreq),
+                                           Freq = transaction_A_itemFreq)
+setkey(transaction_A_itemFreq.table, Sub_code)
+setkey(category.name, Sub_code)
+transaction_A_itemFreq.table_name <- merge(transaction_A_itemFreq.table, category.name)
+transaction_A_itemFreq.table_name[order(-Freq)]
+# 2년간 판매 개수가 적은 제품 탐색
+transaction_A_itemFreq.table_name[Freq < 10, .N]
+
+#빈발패턴
+transaction_A_itemset.single <- sort(eclat(transaction_A_arules,
+                              parameter = list(supp = 0.001, maxlen = 1)))
+transaction_A_itemset <- sort(eclat(transaction_A_arules,
+                              parameter = list(supp = 0.001, maxlen = 19)))
+transaction_A_itemset.table <- as.data.table(inspect(transaction_A_itemset))
+transaction_A_itemset.table[,`:=`(items = as.character(items))]
+transaction_A_itemset.table[, `:=`(items = gsub("[{|}]", "", items))]
+transaction_A_itemset.table[, `:=`(L1 = c(1:nrow(transaction_A_itemset.table)))]
+transaction_A_itemset.value <- as.data.table(melt(strsplit(transaction_A_itemset.table$items, ",")))
+transaction_A_itemset.table_name<- merge(transaction_A_itemset.value, category.name, by.x = "value", by.y = "Sub_code")[,.(Items = list(c(Sub_name))),
+                                                                                     by = .(L1)]
+setkey(transaction_A_itemset.table_name, L1)
+setkey(transaction_A_itemset.table, L1)
+transaction_A_itemset.table_supp <- merge(transaction_A_itemset.table_name, transaction_A_itemset.table)[order(-support)]
+transaction_A_itemset.singleAdd <- melt(lapply(transaction_A_itemset.table_supp$Items, FUN = length))$value == 1
+transaction_A_itemset.table_supp.single <- transaction_A_itemset.table_supp[transaction_A_itemset.singleAdd]
+transaction_A_itemset.table_supp.multi <- transaction_A_itemset.table_supp[!transaction_A_itemset.singleAdd]
+
+
+
+# 파트너 B
+transaction_B_arules <- as(split(as.vector(transaction_B$Sub_code),
+                                 as.vector(transaction_B$ReciptNo)),
+                           "transactions")
+transaction_B_itemFreq <- sort(itemFrequency(transaction_B_arules, "absolute"),
+                              decreasing = TRUE)
+
+transaction_B_itemFreq.table <- data.table(Sub_code = names(transaction_B_itemFreq),
+                                           Freq = transaction_B_itemFreq)
+setkey(transaction_B_itemFreq.table, Sub_code)
+setkey(category.name, Sub_code)
+transaction_B_itemFreq.table_name <- merge(transaction_B_itemFreq.table, category.name)
+transaction_B_itemFreq.table_name[order(-Freq)]
+# 2년간 판매 개수가 적은 제품 탐색
+transaction_B_itemFreq.table_name[Freq < 10, .N]
+
+# 빈발패턴
+transaction_B_itemset.single <- sort(eclat(transaction_B_arules,
+                             parameter = list(supp = 0.001, maxlen = 1)))
+transaction_B_itemset <- sort(eclat(transaction_B_arules,
+                             parameter = list(supp = 0.001, maxlen = 59)))
+transaction_B_itemset.table <- as.data.table(inspect(transaction_B_itemset))
+transaction_B_itemset.table[,`:=`(items = as.character(items))]
+transaction_B_itemset.table[, `:=`(items = gsub("[{|}]", "", items))]
+transaction_B_itemset.table[, `:=`(L1 = c(1:nrow(transaction_B_itemset.table)))]
+transaction_B_itemset.value <- as.data.table(melt(strsplit(transaction_B_itemset.table$items, ",")))
+transaction_B_itemset.table_name<- merge(transaction_B_itemset.value, category.name, 
+                                         by.x = "value", by.y = "Sub_code")[,.(Items = list(c(Sub_name))), by = .(L1)]
+setkey(transaction_B_itemset.table_name, L1)
+setkey(transaction_B_itemset.table, L1)
+transaction_B_itemset.table_supp <- merge(transaction_B_itemset.table_name, transaction_B_itemset.table)[order(-support)]
+transaction_B_itemset.singleAdd <- melt(lapply(transaction_B_itemset.table_supp$Items, FUN = length))$value == 1
+transaction_B_itemset.table_supp.single <- transaction_B_itemset.table_supp[transaction_B_itemset.singleAdd]
+transaction_B_itemset.table_supp.multi <- transaction_B_itemset.table_supp[!transaction_B_itemset.singleAdd]
+
+
+
+# Partner C
+transaction_C_arules <- as(split(as.vector(transaction_C$Sub_code),
+                                 as.vector(transaction_C$ReciptNo)),
+                           "transactions")
+transaction_C_itemFreq <- sort(itemFrequency(transaction_C_arules, "absolute"),
+                              decreasing = TRUE)
+
+transaction_C_itemFreq.table <- data.table(Sub_code = names(transaction_C_itemFreq),
+                                           Freq = transaction_C_itemFreq)
+setkey(transaction_C_itemFreq.table, Sub_code)
+setkey(category.name, Sub_code)
+transaction_C_itemFreq.table_name <- merge(transaction_C_itemFreq.table, category.name)
+transaction_C_itemFreq.table_name[order(-Freq)]
+# 2년간 판매 개수가 적은 제품 탐색
+transaction_C_itemFreq.table_name[Freq < 10, .N]
+
+# 빈발패턴
+transaction_C_itemset.single <- sort(eclat(transaction_C_arules,
+                             parameter = list(supp = 0.001, maxlen = 1)))
+transaction_C_itemset <- sort(eclat(transaction_C_arules,
+                             parameter = list(supp = 0.001, maxlen = 58)))
+transaction_C_itemset.table <- as.data.table(inspect(transaction_C_itemset))
+transaction_C_itemset.table[,`:=`(items = as.character(items))]
+transaction_C_itemset.table[, `:=`(items = gsub("[{|}]", "", items))]
+transaction_C_itemset.table[, `:=`(L1 = c(1:nrow(transaction_C_itemset.table)))]
+transaction_C_itemset.value <- as.data.table(melt(strsplit(transaction_C_itemset.table$items, ",")))
+transaction_C_itemset.table_name<- merge(transaction_C_itemset.value, category.name, 
+                                         by.x = "value", by.y = "Sub_code")[,.(Items = list(c(Sub_name))), by = .(L1)]
+setkey(transaction_C_itemset.table_name, L1)
+setkey(transaction_C_itemset.table, L1)
+transaction_C_itemset.table_supp <- merge(transaction_C_itemset.table_name, transaction_C_itemset.table)[order(-support)]
+transaction_C_itemset.singleAdd <- melt(lapply(transaction_C_itemset.table_supp$Items, FUN = length))$value == 1
+transaction_C_itemset.table_supp.single <- transaction_C_itemset.table_supp[transaction_C_itemset.singleAdd]
+transaction_C_itemset.table_supp.multi <- transaction_C_itemset.table_supp[!transaction_C_itemset.singleAdd]
+
+
+
+# Partner D
+transaction_D_arules <- as(split(as.vector(transaction_D$Sub_code),
+                                 as.vector(transaction_D$ReciptNo)),
+                           "transactions")
+transaction_D_itemFreq <- sort(itemFrequency(transaction_D_arules, "absolute"),
+                              decreasing = TRUE)
+
+transaction_D_itemFreq.table <- data.table(Sub_code = names(transaction_D_itemFreq),
+                                           Freq = transaction_D_itemFreq)
+setkey(transaction_D_itemFreq.table, Sub_code)
+setkey(category.name, Sub_code)
+transaction_D_itemFreq.table_name <- merge(transaction_D_itemFreq.table, category.name)
+transaction_D_itemFreq.table_name[order(-Freq)]
+# 2년간 판매 개수가 적은 제품 탐색
+transaction_D_itemFreq.table_name[Freq < 10, .N]
+
+# 빈발패턴
+transaction_D_itemset.single <- sort(eclat(transaction_D_arules,
+                             parameter = list(supp = 0.001, maxlen = 1)))
+transaction_D_itemset <- sort(eclat(transaction_D_arules,
+                             parameter = list(supp = 0.001, maxlen = 17)))
+transaction_D_itemset.table <- as.data.table(inspect(transaction_D_itemset))
+transaction_D_itemset.table[,`:=`(items = as.character(items))]
+transaction_D_itemset.table[, `:=`(items = gsub("[{|}]", "", items))]
+transaction_D_itemset.table[, `:=`(L1 = c(1:nrow(transaction_D_itemset.table)))]
+transaction_D_itemset.value <- as.data.table(melt(strsplit(transaction_D_itemset.table$items, ",")))
+transaction_D_itemset.table_name<- merge(transaction_D_itemset.value, category.name, 
+                                         by.x = "value", by.y = "Sub_code")[,.(Items = list(c(Sub_name))), by = .(L1)]
+setkey(transaction_D_itemset.table_name, L1)
+setkey(transaction_D_itemset.table, L1)
+transaction_D_itemset.table_supp <- merge(transaction_D_itemset.table_name, transaction_D_itemset.table)[order(-support)]
+transaction_D_itemset.singleAdd <- melt(lapply(transaction_D_itemset.table_supp$Items, FUN = length))$value == 1
+transaction_D_itemset.table_supp.single <- transaction_D_itemset.table_supp[transaction_D_itemset.singleAdd]
+transaction_D_itemset.table_supp.multi <- transaction_D_itemset.table_supp[!transaction_D_itemset.singleAdd]
+
+
+
+# 고객별 엔트로피 계산
+items_by_customer <- transaction[, .(Items = list(c(Sub_code))), by = .(CustomerNo)]
+items_by_customer[, `:=`(N = unlist(lapply(Items, length)))]
+items_by_customer[, `:=`(table = lapply(Items, table))]
+items_by_customer[, `:=`(entropy = unlist(lapply(table, FUN = entropy.empirical, 
+                                                 unit = "log2")))]
+ggplot(items_by_customer, aes(x = entropy, group = 1)) + geom_histogram(bins = 500) +
+  ggtitle("distribution of customer entropy : total")
+
+items_by_customer_A <- transaction[Partner == "A", .(Items = list(c(Sub_code))), by = .(CustomerNo)]
+items_by_customer_A[, `:=`(N = unlist(lapply(Items, length)))]
+items_by_customer_A[, `:=`(table = lapply(Items, table))]
+items_by_customer_A[, `:=`(entropy = unlist(lapply(table, FUN = entropy.empirical, 
+                                                 unit = "log2")))]
+ggplot(items_by_customer_A, aes(x = entropy, group = 1)) + geom_histogram(bins = 500) +
+  ggtitle("distribution of customer entropy : A")
+
+items_by_customer_B <- transaction[Partner == "B", .(Items = list(c(Sub_code))), by = .(CustomerNo)]
+items_by_customer_B[, `:=`(N = unlist(lapply(Items, length)))]
+items_by_customer_B[, `:=`(table = lapply(Items, table))]
+items_by_customer_B[, `:=`(entropy = unlist(lapply(table, FUN = entropy.empirical, 
+                                                 unit = "log2")))]
+ggplot(items_by_customer_B, aes(x = entropy, group = 1)) + geom_histogram(bins = 500) +
+  ggtitle("distribution of customer entropy : B")
+
+items_by_customer_C <- transaction[Partner == "C", .(Items = list(c(Sub_code))), by = .(CustomerNo)]
+items_by_customer_C[, `:=`(N = unlist(lapply(Items, length)))]
+items_by_customer_C[, `:=`(table = lapply(Items, table))]
+items_by_customer_C[, `:=`(entropy = unlist(lapply(table, FUN = entropy.empirical, 
+                                                 unit = "log2")))]
+ggplot(items_by_customer_C, aes(x = entropy, group = 1)) + geom_histogram(bins = 500) +
+  ggtitle("distribution of customer entropy : C")
+
+items_by_customer_D <- transaction[Partner == "D", .(Items = list(c(Sub_code))), by = .(CustomerNo)]
+items_by_customer_D[, `:=`(N = unlist(lapply(Items, length)))]
+items_by_customer_D[, `:=`(table = lapply(Items, table))]
+items_by_customer_D[, `:=`(entropy = unlist(lapply(table, FUN = entropy.empirical, 
+                                                 unit = "log2")))]
+ggplot(items_by_customer_D, aes(x = entropy, group = 1)) + geom_histogram(bins = 500) +
+  ggtitle("distribution of customer entropy : D")
+
+
+
+# 특정 영수증과 제품 구매 정보
+# transaction_A_byRecipt <- transaction_A[, .(Items = list(c(Sub_code)),
+#                                             CustomerNo = unique(CustomerNo),
+#                                             Date = as.Date(as.character(unique(Date)), format = "%Y%m%d"),
+#                                             Amount = sum(.SD$Amount)), by = ReciptNo]
+# transaction_B_byRecipt <- transaction_B[, .(Items = list(c(Sub_code)),
+#                                             CustomerNo = unique(CustomerNo),
+#                                             Date = as.Date(as.character(unique(Date)), format = "%Y%m%d"),
+#                                             Amount = sum(.SD$Amount)), by = ReciptNo]
+# transaction_C_byRecipt <- transaction_C[, .(Items = list(c(Sub_code)),
+#                                             CustomerNo = unique(CustomerNo),
+#                                             Date = as.Date(as.character(unique(Date)), format = "%Y%m%d"),
+#                                             Amount = sum(.SD$Amount)), by = ReciptNo]
+# transaction_D_byRecipt <- transaction_D[, .(Items = list(c(Sub_code)),
+#                                             CustomerNo = unique(CustomerNo),
+#                                             Date = as.Date(as.character(unique(Date)), format = "%Y%m%d"),
+#                                             Amount = sum(.SD$Amount)), by = ReciptNo]
+
+# transaction_byRecipt <- transaction[, .(items = list(c(소분류코드)),
+#                                         cutomerNo = list(c(unique(고객번호))),
+#                                         data = list(c(unique(구매일자)))), by = 영수증번호]
+
+
+# 경쟁사 이용 빈도와 파트너사 이용 빈도 차이 그래프 - 데이터 부재로 사용 불가
+# transaction_A_CusNDate <- transaction_A_byRecipt[, .(Date, CustomerNo, Amount)][order(Date)]
+# transaction_A_CusNDate_2015 <- transaction_A_CusNDate[year(Date) == 2015]
+# setkey(transaction_A_CusNDate,CustomerNo)
+# transaction_A_CusNFreq <- transaction_A_CusNDate_2015[, .N, by = CustomerNo]
+# competitor_A <- competitor[제휴사 == "A"]
+# competitor_A[, `:=`(경쟁사 = NULL)]
+# setkey(competitor_A, 고객번호)
+# competitor_A_usage_Date_binary <- as.data.table(dcast(competitor_A, 고객번호 ~ 이용년월, value.var = "이용년월"))
+# competitor_A_usage_Date_binary[, `:=`(Sum = rowSums(.SD)), .SDcols = names(competitor_A_usage_Date_binary)[2:ncol(competitor_A_usage_Date_binary)]]
+# competitor_A_CusNFreq <- competitor_A_usage_Date_binary[, .(고객번호, Sum)]
+# 
+# compare_partner_competitor_A <- merge(competitor_A_CusNFreq, transaction_A_CusNFreq, by.x = "고객번호", by.y = "CustomerNo")
+# names(compare_partner_competitor_A) <- c('CustomerNo', 'Competitor_usage', 'Partner_usage')
+# compare_partner_competitor_A[, `:=`(Rate = Partner_usage - Competitor_usage)]
+# 
+# ggplot(compare_partner_competitor_A, aes(x = CustomerNo, y = Rate)) + geom_point()
+
+# 정규표현식 - 가운데 두개 01 숫자 데이터 뽑아내기
+# grep("A[0-9]{2}01[0-9]{2}",a)
+
+
+
+# 평가를 위한 Training set 구축 (2014년 1년치 대상으로 2015년 1월 예상)
+transaction_A[, `:=`(Date = as.Date(as.character(Date), format = "%Y%m%d"))]
+transaction_A_cus_N_item_amount_2014 <- transaction_A[year(Date) == 2014,
+                                                       .(Amount = sum(.SD$Amount)),
+                                                       by = .(CustomerNo, Sub_code)]
+transaction_A_cus_by_item_amount_2014 <- dcast.data.table(transaction_A_cus_N_item_amount_2014,
+                                                          CustomerNo ~ Sub_code,
+                                                          value.var = "Amount")
+transaction_A_cus_N_item_amount_201501 <- transaction_A[year(Date) == 2015 & month(Date) == 01,
+                                                        .(Amount = sum(.SD$Amount)),
+                                                        by = .(CustomerNo, Sub_code)]
+transaction_A_cus_by_item_amount_201501 <- dcast.data.table(transaction_A_cus_N_item_amount_201501,
+                                                            CustomerNo ~ Sub_code,
+                                                            value.var = "Amount")
